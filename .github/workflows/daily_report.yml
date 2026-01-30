@@ -1,67 +1,49 @@
-from google import genai
-import logging
-import time
-from config.settings import settings
+name: IT News Automation
 
-logger = logging.getLogger(__name__)
+on:
+  schedule:
+    # 한국 시간 기준 09:00, 12:00, 15:00, 19:00 (UTC 00, 03, 06, 10)
+    - cron: '0 0,3,6,10 * * *'
+    # 한국 시간 기준 17:30 (UTC 08:30)
+    - cron: '30 8 * * *'
+  workflow_dispatch: # 수동 실행 버튼
 
-class NewsAnalyzer: # <--- 이 클래스 이름이 main.py의 import 문과 일치해야 합니다.
-    def __init__(self):
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        self.model_id = "models/gemini-2.5-flash-lite"
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 상태 저장을 위해 쓰기 권한 필수
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          pip install google-genai feedparser requests python-dotenv PyYAML
 
-    def _generate_prompt(self, title: str, description: str) -> str:
-        return f"""
-        당신은 시니어 DevOps 엔지니어입니다. 다음 IT 뉴스를 분석하여 보고하세요.
-        
-        [지침]
-        1. HTML 태그(<b>, <i>)만 사용하고 마크다운 기호(#, *, -, `)는 '절대' 사용하지 마세요.
-        2. 가독성을 위해 불렛 포인트 대신 이모지(🔹, ✅, 🚀)를 사용하세요.
-        3. 섹션 구분은 명확하게 줄바꿈을 활용하세요.
+      - name: Run News Bot
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # 수동 실행(workflow_dispatch)이거나 스케줄이 10시인 경우에만 summary 실행
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] || [ "${{ github.event.schedule }}" == "0 10 * * *" ]; then
+            echo "Running in Summary Mode"
+            python main.py --mode summary
+          else
+            echo "Running in Regular Mode"
+            python main.py --mode regular
+          fi
 
-        [기사 정보]
-        - 제목: {title}
-        - 내용: {description}
-
-        [보고 형식]
-        <b>[1. 기술적 시사점]</b> (Linux, Cloud, DevOps 관점)
-        (내용 작성)
-
-        <b>[2. 해석 및 분석]</b> (트렌드 전망)
-        (내용 작성)
-
-        <b>[3. 최종 요약]</b>
-        ✅ (한 줄 요약)
-        """
-
-    def analyze_article(self, article: dict) -> str:
-        for attempt in range(3):
-            try:
-                prompt = self._generate_prompt(article['title'], article['description'])
-                response = self.client.models.generate_content(
-                    model=self.model_id,
-                    contents=prompt
-                )
-                return response.text
-            except Exception as e:
-                if "429" in str(e):
-                    wait_time = (attempt + 1) * 15
-                    logger.warning(f"429 에러 발생. {wait_time}초 후 재시도... ({attempt+1}/3)")
-                    time.sleep(wait_time)
-                    continue
-                logger.error(f"Gemini 분석 중 오류 발생: {e}")
-                return f"분석 실패: {str(e)[:50]}"
-        return "할당량 초과로 분석 실패"
-
-    def analyze_daily_summary(self, articles: list) -> str:
-        if not articles: return "요약할 뉴스 없음"
-        titles = "\n".join([f"- {a['title']}" for a in articles])
-        try:
-            response = self.client.models.generate_content(
-                model=self.model_id,
-                contents=f"오늘의 IT 헤드라인 종합 분석(HTML 태그 사용):\n{titles}"
-            )
-            return response.text
-        except Exception as e:
-            logger.error(f"종합 분석 오류: {e}")
-            return "종합 분석 실패"
+      - name: Commit and Push State
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add data/sent_articles.json || echo "No changes"
+          git commit -m "chore: update news state [skip ci]" || echo "No changes"
+          git push || echo "No changes"
