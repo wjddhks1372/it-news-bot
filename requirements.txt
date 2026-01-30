@@ -1,0 +1,6 @@
+feedparser==6.0.11
+requests==2.31.0
+google-genai  # 이 부분이 변경됨
+PyYAML==6.0.1
+python-dotenv==1.0.0
+pytz==2023.3.post1
