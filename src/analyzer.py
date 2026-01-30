@@ -55,11 +55,35 @@ class NewsAnalyzer: # <--- 이 클래스 이름이 main.py의 import 문과 일�
 
     def analyze_daily_summary(self, articles: list) -> str:
         if not articles: return "요약할 뉴스 없음"
+        
         titles = "\n".join([f"- {a['title']}" for a in articles])
+        
+        # 더욱 엄격한 HTML 가이드라인 제공
+        prompt = f"""
+        당신은 시니어 DevOps 엔지니어입니다. 오늘의 IT 뉴스를 종합 분석하여 보고하세요.
+        
+        [지침]
+        1. 텔레그램 호환을 위해 <b>, <i> 태그만 사용하세요.
+        2. <h1>, <h2>, <ul>, <li> 등 다른 태그는 '절대' 사용하지 마세요.
+        3. 섹션 제목은 <b>[제목]</b> 형식을 사용하세요.
+        4. 불렛 포인트는 이모지(🔹)를 사용하세요.
+
+        [오늘의 뉴스 목록]
+        {titles}
+
+        [보고 형식]
+        <b>[오늘의 기술 트렌드 요약]</b>
+        🔹 (분석 내용 1)
+        🔹 (분석 내용 2)
+        
+        <b>[결론]</b>
+        (한 줄 요약)
+        """
+        
         try:
             response = self.client.models.generate_content(
                 model=self.model_id,
-                contents=f"오늘의 IT 헤드라인 종합 분석(HTML 태그 사용):\n{titles}"
+                contents=prompt
             )
             return response.text
         except Exception as e:
