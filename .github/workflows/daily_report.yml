@@ -31,7 +31,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # 변수 확장을 위해 ${{ }} 문법을 정확히 사용
           EVENT_NAME="${{ github.event_name }}"
           SCHEDULE="${{ github.event.schedule }}"
 
@@ -42,7 +41,7 @@ jobs:
             echo "Running in Regular Mode"
             python main.py --mode regular
           fi
-          
+
       - name: Commit and Push State
         run: |
           git config --global user.name 'github-actions[bot]'
