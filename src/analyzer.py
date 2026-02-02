@@ -1,6 +1,5 @@
 from google import genai
 import logging
-import time
 import re
 from config.settings import settings
 
@@ -12,11 +11,9 @@ class NewsAnalyzer:
         self.model_id = "models/gemini-2.5-flash-lite"
 
     def score_articles(self, articles: list) -> list:
-        """기사들의 중요도를 1-10점으로 배치 스코어링합니다."""
         if not articles: return []
-        
         headlines = "\n".join([f"[{i}] {a['title']}" for i, a in enumerate(articles)])
-        prompt = f"다음 IT 헤드라인의 기술적 가치를 1-10점으로 평가해 리스트로 응답하세요. 예: [5, 8, 3]\n\n{headlines}"
+        prompt = f"다음 IT 헤드라인의 기술적 가치를 1-10점으로 평가해 숫자 리스트로 응답하세요.\n\n{headlines}"
         
         try:
             response = self.client.models.generate_content(model=self.model_id, contents=prompt)
@@ -28,20 +25,26 @@ class NewsAnalyzer:
             return [dict(a, score=1) for a in articles]
 
     def analyze_article(self, article: dict) -> str:
-        """고득점 기사에 대한 상세 분석 리포트를 생성합니다."""
+        # 단일 기사 분석 프롬프트: 기호 제거 및 줄바꿈 강조
         prompt = f"""
-        당신은 시니어 DevOps 엔지니어입니다. 다음 뉴스를 전문적으로 분석하세요.
-        지침: <b>, <i> 태그만 사용. 마크다운 기호 금지. 이모지 활용.
+        당신은 시니어 DevOps 엔지니어입니다. 다음 뉴스를 분석하십시오.
         
-        제목: {article['title']}
+        [지침]
+        1. 문장 앞에 '*', '-', '•' 등 어떤 기호도 붙이지 마십시오.
+        2. HTML <b>, <i> 태그만 사용하고 마크다운 기호를 사용하지 마십시오.
+        3. 각 섹션 사이는 반드시 두 줄의 줄바꿈을 넣으십시오.
+
+        기사 제목: {article['title']}
         내용: {article['description']}
         
-        보고 형식:
+        [응답 형식]
         <b>[기술적 시사점]</b>
-        🔹 (내용)
+        (기호 없이 내용 기술)
+
         <b>[해석 및 분석]</b>
-        🚀 (내용)
-        <b>[최종 요약]</b>
+        (기호 없이 내용 기술)
+
+        <b>[요약]</b>
         ✅ (한 줄 요약)
         """
         try:
@@ -49,12 +52,33 @@ class NewsAnalyzer:
         except: return "분석 실패"
 
     def analyze_daily_summary(self, articles: list) -> str:
-        """중간 점수(4-6점) 기사들을 모아 '오늘 놓치면 아쉬운 뉴스'로 요약합니다."""
-        if not articles: return "오늘 요약할 추가 뉴스가 없습니다."
+        # 종합 요약 프롬프트: 가독성 최적화
+        if not articles: return "요약할 뉴스 없음"
         
-        content = "\n".join([f"🔹 <b>{a['title']}</b> (점수: {a['score']}점)" for a in articles])
-        prompt = f"다음 뉴스들의 핵심 내용을 묶어 '오늘의 기술 트렌드'로 HTML 요약 보고서를 작성하세요.\n\n{content}"
-        
+        content = "\n".join([f"제목: {a['title']} (점수: {a['score']})" for a in articles])
+        prompt = f"""
+        당신은 IT 기술 분석가입니다. 오늘의 주요 뉴스를 종합 보고하십시오.
+
+        [지침]
+        1. 텍스트 앞에 '*', '-', '•' 등 목록 기호를 절대 사용하지 마십시오.
+        2. 항목은 제목을 <b> 태그로 감싸고 다음 줄에 내용을 적으십시오.
+        3. 섹션 사이는 명확히 구분하십시오.
+
+        [뉴스 목록]
+        {content}
+
+        [응답 형식]
+        <b>[오늘의 핵심 기술 트렌드]</b>
+
+        <b>1. (주요 주제 명칭)</b>
+        (설명 내용 기술)
+
+        <b>2. (주요 주제 명칭)</b>
+        (설명 내용 기술)
+
+        <b>✅ 최종 요약</b>
+        (전체 내용을 관통하는 한 줄 평)
+        """
         try:
             return self.client.models.generate_content(model=self.model_id, contents=prompt).text
         except: return "종합 요약 실패"
