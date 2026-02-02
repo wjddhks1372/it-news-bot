@@ -31,15 +31,18 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # 수동 실행(workflow_dispatch)이거나 스케줄이 10시인 경우에만 summary 실행
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ] || [ "${{ github.event.schedule }}" == "0 10 * * *" ]; then
+          # 변수 확장을 위해 ${{ }} 문법을 정확히 사용
+          EVENT_NAME="${{ github.event_name }}"
+          SCHEDULE="${{ github.event.schedule }}"
+
+          if [ "$EVENT_NAME" == "workflow_dispatch" ] || [ "$SCHEDULE" == "0 10 * * *" ]; then
             echo "Running in Summary Mode"
             python main.py --mode summary
           else
             echo "Running in Regular Mode"
             python main.py --mode regular
           fi
-
+          
       - name: Commit and Push State
         run: |
           git config --global user.name 'github-actions[bot]'
