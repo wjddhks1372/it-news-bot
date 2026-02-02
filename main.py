@@ -27,15 +27,17 @@ class NewsSystem:
         # 1. AI 스코어링
         scored = self.analyzer.score_articles(new_articles)
         
+        # NewsSystem.run 메서드 내 발송 로직 부분 수정
         if mode == "regular":
-            # 7점 이상: 즉시 상세 분석 보고 (최대 3개)
             high_priority = sorted([a for a in scored if a['score'] >= 7], key=lambda x: x['score'], reverse=True)[:3]
             for a in high_priority:
                 analysis = self.analyzer.analyze_article(a)
                 if "실패" not in analysis:
-                    self.notifier.send_report(f"<b>[AI 선정 주요 뉴스 - {a['score']}점]</b>\n{analysis}", a['link'])
+                    # 근거(reason)를 메시지 상단에 배치
+                    header = f"<b>[AI 평점: {a['score']}점]</b>\n<i>💡 {a.get('reason', 'N/A')}</i>"
+                    self.notifier.send_report(f"{header}\n\n{analysis}", a['link'])
                     self.state.add_article(a['link'])
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(15) # 429 에러 방지를 위해 간격 유지
 
         elif mode == "summary":
             # 4~6점: 저녁 요약 보고
