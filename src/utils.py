@@ -1,48 +1,51 @@
-import json
-import os
 import logging
 from datetime import datetime, timedelta
+from supabase import create_client
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 class StateManager:
-    def __init__(self, file_path="data/sent_articles.json"):
-        self.file_path = file_path
-        # 데이터 디렉토리 자동 생성
-        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
-        self.sent_articles = self._load_state()
-
-    def _load_state(self):
-        if os.path.exists(self.file_path):
-            try:
-                with open(self.file_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
+    def __init__(self):
+        self.url = settings.SUPABASE_URL
+        self.key = settings.SUPABASE_KEY
+        if not self.url or not self.key:
+            logger.error("Supabase API 정보가 누락되었습니다.")
+            self.client = None
+        else:
+            self.client = create_client(self.url, self.key)
 
     def is_already_sent(self, link: str) -> bool:
-        return link in self.sent_articles
+        """DB에서 URL 존재 여부 확인"""
+        if not self.client: return False
+        try:
+            res = self.client.table("news_articles").select("url").eq("url", link).execute()
+            return len(res.data) > 0
+        except Exception as e:
+            logger.error(f"DB 조회 실패: {e}")
+            return False
 
-    def add_article(self, link: str):
-        self.sent_articles[link] = datetime.now().isoformat()
-        self._save_state()
+    def add_article(self, article: dict):
+        """기사 상세 정보를 DB에 Upsert"""
+        if not self.client: return
+        try:
+            data = {
+                "url": article['link'],
+                "source": article['source'],
+                "title": article['title'],
+                "score": article.get('score', 0),
+                "reason": article.get('reason', ""),
+                "created_at": datetime.now().isoformat()
+            }
+            self.client.table("news_articles").upsert(data).execute()
+        except Exception as e:
+            logger.error(f"DB 저장 실패: {e}")
 
-    def _save_state(self):
-        with open(self.file_path, 'w', encoding='utf-8') as f:
-            json.dump(self.sent_articles, f, ensure_ascii=False, indent=2)
-
-    def clean_old_state(self, days=7):
-        """7일 이상 된 기록은 삭제하여 파일 크기를 유지합니다."""
-        now = datetime.now()
-        cutoff = now - timedelta(days=days)
-        
-        initial_count = len(self.sent_articles)
-        self.sent_articles = {
-            link: ts for link, ts in self.sent_articles.items()
-            if datetime.fromisoformat(ts) > cutoff
-        }
-        
-        if initial_count != len(self.sent_articles):
-            self._save_state()
-            logger.info(f"오래된 상태 데이터 정리 완료 ({initial_count} -> {len(self.sent_articles)})")
+    def clean_old_state(self, days=30):
+        """무료 용량 관리를 위해 30일 지난 데이터 삭제"""
+        if not self.client: return
+        try:
+            limit = (datetime.now() - timedelta(days=days)).isoformat()
+            self.client.table("news_articles").delete().lt("created_at", limit).execute()
+        except Exception as e:
+            logger.error(f"DB 정리 실패: {e}")

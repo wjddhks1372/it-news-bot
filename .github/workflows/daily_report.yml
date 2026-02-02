@@ -9,8 +9,9 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    # 이제 Git Push가 필요 없으므로 쓰기 권한은 필수가 아니지만, 안전을 위해 기본값 유지
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       
@@ -26,14 +27,17 @@ jobs:
 
       - name: Run News Bot
         env:
+          # GitHub Secrets에 저장된 정보를 환경 변수로 로드
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           EVENT_NAME="${{ github.event_name }}"
           SCHEDULE="${{ github.event.schedule }}"
 
-          # 스케줄이 09:00 UTC (KST 18:00)이거나 수동 실행인 경우 Summary 모드
+          # KST 18:00 (UTC 09:00) 스케줄이거나 수동 실행 시 요약 모드
           if [ "$SCHEDULE" == "0 9 * * *" ] || [ "$EVENT_NAME" == "workflow_dispatch" ]; then
             echo "Running in Summary Mode"
             python main.py --mode summary
@@ -42,10 +46,5 @@ jobs:
             python main.py --mode regular
           fi
 
-      - name: Commit and Push State
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add data/sent_articles.json || echo "No changes"
-          git commit -m "chore: update news state [skip ci]" || echo "No changes"
-          git push || echo "No changes"
+      # [Commit and Push State 단계가 삭제되었습니다]
+      # 모든 데이터는 실행 중 Supabase로 실시간 전송됩니다.

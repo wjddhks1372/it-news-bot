@@ -36,7 +36,7 @@ class NewsSystem:
                     # 근거(reason)를 메시지 상단에 배치
                     header = f"<b>[AI 평점: {a['score']}점]</b>\n<i>💡 {a.get('reason', 'N/A')}</i>"
                     self.notifier.send_report(f"{header}\n\n{analysis}", a['link'])
-                    self.state.add_article(a['link'])
+                    self.state.add_article(a)
                     await asyncio.sleep(15) # 429 에러 방지를 위해 간격 유지
 
         elif mode == "summary":
