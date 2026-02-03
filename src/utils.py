@@ -26,17 +26,27 @@ class StateManager:
             return False
 
     def add_article(self, article: dict):
-        """기사 상세 정보를 DB에 Upsert"""
+        """기사 정보를 DB에 저장"""
         if not self.client: return
         try:
-            data = {
-                "url": article['link'],
-                "source": article['source'],
-                "title": article['title'],
-                "score": article.get('score', 0),
-                "reason": article.get('reason', ""),
-                "created_at": datetime.now().isoformat()
-            }
+            # article이 dict가 아닌 문자열(URL)로 넘어올 경우를 대비한 방어 로직
+            if isinstance(article, str):
+                data = {
+                    "url": article,
+                    "source": "Unknown",
+                    "title": "Unknown",
+                    "created_at": datetime.now().isoformat()
+                }
+            else:
+                data = {
+                    "url": article.get('link'),
+                    "source": article.get('source'),
+                    "title": article.get('title'),
+                    "score": article.get('score', 0),
+                    "reason": article.get('reason', ""),
+                    "created_at": datetime.now().isoformat()
+                }
+            
             self.client.table("news_articles").upsert(data).execute()
         except Exception as e:
             logger.error(f"DB 저장 실패: {e}")

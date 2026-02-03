@@ -44,8 +44,8 @@ class NewsSystem:
             mid_priority = [a for a in scored if 4 <= a['score'] < 7]
             summary = self.analyzer.analyze_daily_summary(mid_priority)
             self.notifier.send_combined_summary(summary)
-            for a in new_articles: # 요약된 기사들도 발송 완료 처리
-                self.state.add_article(a['link'])
+            for a in new_articles:
+                self.state.add_article(a)
 
         self.state.clean_old_state()
 
