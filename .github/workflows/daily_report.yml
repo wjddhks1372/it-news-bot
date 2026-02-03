@@ -1,30 +1,22 @@
-name: IT News Automation
+name: Daily IT News Report
 
 on:
   schedule:
-    # 08:00, 11:00, 14:00, 18:00 (KST 기준)
-    - cron: '0 23,2,5,9 * * *'
+    # 06:07 UTC = 15:07 KST (오후 3시 7분)
+    - cron: '7 6 * * *'
   workflow_dispatch:
 
 jobs:
-  run-bot:
+  build:
     runs-on: ubuntu-latest
-    # 이제 Git Push가 필요 없으므로 쓰기 권한은 필수가 아니지만, 안전을 위해 기본값 유지
-    permissions:
-      contents: read
     steps:
-      - uses: actions/checkout@v4
-      
+      - uses: actions/checkout@v3
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-          
+          python-location: '3.10'
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
+        run: pip install -r requirements.txt
       - name: Run News Bot
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -33,18 +25,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          EVENT_NAME="${{ github.event_name }}"
-          # 테스트를 위해 수동 실행(workflow_dispatch) 시 'regular' 모드가 돌아가게 변경
-          if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
-            echo "Running in Regular Mode for Testing"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             python main.py --mode regular
           else
-            echo "Running in Schedule Mode"
-            # 실제 스케줄(18시)일 때만 summary 모드 작동
-            SCHEDULE="${{ github.event.schedule }}"
-            if [ "$SCHEDULE" == "0 9 * * *" ]; then
-              python main.py --mode summary
-            else
-              python main.py --mode regular
-            fi
+            python main.py --mode summary
           fi

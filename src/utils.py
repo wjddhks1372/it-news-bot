@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime, timedelta
 from supabase import create_client
 from config.settings import settings
 
@@ -7,55 +6,38 @@ logger = logging.getLogger(__name__)
 
 class StateManager:
     def __init__(self):
-        self.url = settings.SUPABASE_URL
-        self.key = settings.SUPABASE_KEY
-        if not self.url or not self.key:
-            logger.error("Supabase API 정보가 누락되었습니다.")
-            self.client = None
-        else:
-            self.client = create_client(self.url, self.key)
+        self.client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
-    def is_already_sent(self, link: str) -> bool:
-        """DB에서 URL 존재 여부 확인"""
-        if not self.client: return False
-        try:
-            res = self.client.table("news_articles").select("url").eq("url", link).execute()
-            return len(res.data) > 0
-        except Exception as e:
-            logger.error(f"DB 조회 실패: {e}")
-            return False
+    def is_already_sent(self, url: str) -> bool:
+        res = self.client.table("news_articles").select("url").eq("url", url).execute()
+        return len(res.data) > 0
 
     def add_article(self, article: dict):
-        """기사 정보를 DB에 저장"""
-        if not self.client: return
+        self.client.table("news_articles").insert({
+            "title": article['title'],
+            "url": article['link'],
+            "score": article.get('score', 0),
+            "reason": article.get('reason', ""),
+            "source": article.get('source', "")
+        }).execute()
+
+    def get_user_persona(self):
+        """DB에서 캐싱된 취향 데이터를 가져옵니다."""
         try:
-            # article이 dict가 아닌 문자열(URL)로 넘어올 경우를 대비한 방어 로직
-            if isinstance(article, str):
-                data = {
-                    "url": article,
-                    "source": "Unknown",
-                    "title": "Unknown",
-                    "created_at": datetime.now().isoformat()
-                }
-            else:
-                data = {
-                    "url": article.get('link'),
-                    "source": article.get('source'),
-                    "title": article.get('title'),
-                    "score": article.get('score', 0),
-                    "reason": article.get('reason', ""),
-                    "created_at": datetime.now().isoformat()
-                }
-            
-            self.client.table("news_articles").upsert(data).execute()
-        except Exception as e:
-            logger.error(f"DB 저장 실패: {e}")
+            res = self.client.table("user_preferences").select("*").eq("persona_type", "main").single().execute()
+            return res.data
+        except:
+            return None
+
+    def save_user_persona(self, pref, dislike):
+        """취향 데이터를 DB에 캐싱합니다."""
+        self.client.table("user_preferences").update({
+            "preference_summary": pref,
+            "dislike_summary": dislike,
+            "updated_at": "now()"
+        }).eq("persona_type", "main").execute()
 
     def clean_old_state(self, days=30):
-        """무료 용량 관리를 위해 30일 지난 데이터 삭제"""
-        if not self.client: return
-        try:
-            limit = (datetime.now() - timedelta(days=days)).isoformat()
-            self.client.table("news_articles").delete().lt("created_at", limit).execute()
-        except Exception as e:
-            logger.error(f"DB 정리 실패: {e}")
+        from datetime import datetime, timedelta
+        threshold = (datetime.now() - timedelta(days=days)).isoformat()
+        self.client.table("news_articles").delete().lt("created_at", threshold).execute()
