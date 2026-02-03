@@ -1,78 +1,65 @@
+import httpx
 import feedparser
 import logging
 import asyncio
-import httpx # 여전히 비동기 처리를 위해 필요
-from urllib.parse import urlparse, urlunparse
-from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
 class NewsCollector:
     def __init__(self):
-        self.sources = {
-            # GeekNews: 쿼리 파라미터를 붙여 캐시를 우회하고 봇 탐지를 흐립니다.
-            "GeekNews": "https://news.hada.io/rss?v=1", 
-            "ITWorld_Korea": "https://www.itworld.co.kr/rss/feed/index.php",
-            "HackerNews": "https://news.ycombinator.com/rss",
-            "AWS_News": "https://aws.amazon.com/ko/blogs/aws/feed/",
-            "Unity_Blog": "https://unity.com/kr/blog/rss",
-            "Toss_Tech": "https://toss.tech/rss.xml",
-            "Karrot_Tech": "https://medium.com/feed/daangn"
-        }
-        
+        self.sources = [
+            {"name": "Karrot_Tech", "url": "https://medium.com/feed/daangn"},
+            {"name": "Toss_Tech", "url": "https://toss.tech/rss.xml"},
+            {"name": "AWS_News", "url": "https://aws.amazon.com/ko/blogs/aws/feed/"},
+            {"name": "HackerNews", "url": "https://news.ycombinator.com/rss"},
+            {"name": "Unity_Blog", "url": "https://unity.com/kr/blog/rss"},
+            {"name": "GeekNews", "url": "https://news.hada.io/rss"},
+            {"name": "ITWorld_Korea", "url": "https://www.itworld.co.kr/rss/feed/index.php"}
+        ]
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Accept": "application/rss+xml, application/xml, text/xml, */*",
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Referer": "https://www.google.com/" # 구글에서 유입된 것처럼 위장
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
 
-    def _normalize_url(self, url: str) -> str:
-        parsed = urlparse(url)
-        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
-
-    async def _fetch_feed(self, client: httpx.AsyncClient, name: str, url: str) -> List[Dict]:
+    async def fetch_rss(self, source):
         try:
-            # ITWorld 같은 사이트를 위해 주소 끝에 슬래시 유무를 강제 조정하지 않음
-            response = await client.get(url, timeout=15.0, follow_redirects=True, headers=self.headers)
-            
-            if response.status_code == 403 and "hada.io" in url:
-                logger.warning(f"⚠️ {name}가 차단되었습니다. 다른 주소 시도...")
-                # 403 발생 시 우회 주소로 한 번 더 시도
-                response = await client.get("https://news.hada.io/rss", timeout=15.0, follow_redirects=True, headers=self.headers)
-
-            if response.status_code != 200:
-                logger.error(f"❌ {name} 응답 에러: {response.status_code} ({url})")
-                return []
-
-            feed = feedparser.parse(response.text)
-            articles = []
-            for entry in feed.entries[:15]:
-                articles.append({
-                    "source": name,
-                    "title": entry.get("title", "제목 없음").strip(),
-                    "link": self._normalize_url(entry.get("link", "")),
-                    "description": entry.get("description", ""),
-                    "published": entry.get("published", "")
-                })
-            logger.info(f"✅ {name} 수집 성공 ({len(articles)}건)")
-            return articles
-            
+            async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=15.0) as client:
+                response = await client.get(source["url"])
+                if response.status_code != 200:
+                    logger.error(f"❌ {source['name']} 응답 에러: {response.status_code}")
+                    return []
+                
+                feed = feedparser.parse(response.text)
+                articles = []
+                for entry in feed.entries[:15]:
+                    articles.append({
+                        "title": entry.title,
+                        "link": entry.link,
+                        "description": entry.get("summary", entry.get("description", "")),
+                        "source": source["name"]
+                    })
+                logger.info(f"✅ {source['name']} 수집 성공 ({len(articles)}건)")
+                return articles
         except Exception as e:
-            logger.error(f"❌ {name} 연결 실패: {str(e)}")
+            logger.error(f"❌ {source['name']} 수집 중 예외 발생: {e}")
             return []
 
-    async def collect_all(self) -> List[Dict]:
-        async with httpx.AsyncClient(http2=True) as client: # HTTP/2 활성화로 봇 탐지 우회 확률 증가
-            tasks = [self._fetch_feed(client, name, url) for name, url in self.sources.items()]
-            results = await asyncio.gather(*tasks)
-            raw_articles = [a for sub in results for a in sub]
-            
-            unique_articles = {}
-            for a in raw_articles:
-                if a['link'] not in unique_articles:
-                    unique_articles[a['link']] = a
-            
-            final_list = list(unique_articles.values())
-            logger.info(f"🚀 전체 수집 완료: 총 {len(final_list)}건")
-            return final_list
+    async def collect_all(self):
+        # 1. 우선순위 도메인과 일반 도메인 분리
+        priority_names = ["Toss_Tech", "Karrot_Tech"]
+        priority_sources = [s for s in self.sources if s["name"] in priority_names]
+        other_sources = [s for s in self.sources if s["name"] not in priority_names]
+
+        # 2. 비동기로 수집 실행
+        priority_tasks = [self.fetch_rss(s) for s in priority_sources]
+        other_tasks = [self.fetch_rss(s) for s in other_sources]
+
+        # 3. 결과 합치기 (우선순위 기사가 리스트 앞쪽에 위치)
+        priority_results = await asyncio.gather(*priority_tasks)
+        other_results = await asyncio.gather(*other_tasks)
+
+        all_articles = []
+        for res in priority_results: all_articles.extend(res)
+        for res in other_results: all_articles.extend(res)
+
+        logger.info(f"🚀 전체 수집 완료: 총 {len(all_articles)}건 (우선순위 도메인 우선 배치)")
+        return all_articles
