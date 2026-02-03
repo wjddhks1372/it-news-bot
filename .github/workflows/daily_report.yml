@@ -27,7 +27,6 @@ jobs:
 
       - name: Run News Bot
         env:
-          # GitHub Secrets에 저장된 정보를 환경 변수로 로드
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -35,16 +34,17 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           EVENT_NAME="${{ github.event_name }}"
-          SCHEDULE="${{ github.event.schedule }}"
-
-          # KST 18:00 (UTC 09:00) 스케줄이거나 수동 실행 시 요약 모드
-          if [ "$SCHEDULE" == "0 9 * * *" ] || [ "$EVENT_NAME" == "workflow_dispatch" ]; then
-            echo "Running in Summary Mode"
-            python main.py --mode summary
-          else
-            echo "Running in Regular Mode"
+          # 테스트를 위해 수동 실행(workflow_dispatch) 시 'regular' 모드가 돌아가게 변경
+          if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
+            echo "Running in Regular Mode for Testing"
             python main.py --mode regular
+          else
+            echo "Running in Schedule Mode"
+            # 실제 스케줄(18시)일 때만 summary 모드 작동
+            SCHEDULE="${{ github.event.schedule }}"
+            if [ "$SCHEDULE" == "0 9 * * *" ]; then
+              python main.py --mode summary
+            else
+              python main.py --mode regular
+            fi
           fi
-
-      # [Commit and Push State 단계가 삭제되었습니다]
-      # 모든 데이터는 실행 중 Supabase로 실시간 전송됩니다.

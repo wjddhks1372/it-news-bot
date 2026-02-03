@@ -1,5 +1,6 @@
 import requests
 import logging
+import json
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -10,8 +11,8 @@ class TelegramNotifier:
         self.chat_id = settings.TELEGRAM_CHAT_ID
         self.api_url = f"https://api.telegram.org/bot{self.token}/sendMessage"
 
-    def _send(self, text: str) -> bool:
-        """메시지를 실제 발송하고 성공 여부를 반환합니다."""
+    def _send(self, text: str, callback_url: str = None) -> bool:
+        """메시지를 발송하며, url이 제공될 경우 피드백 버튼을 부착합니다."""
         try:
             payload = {
                 "chat_id": str(self.chat_id).strip(),
@@ -19,6 +20,18 @@ class TelegramNotifier:
                 "parse_mode": "HTML",
                 "disable_web_page_preview": False
             }
+
+            if callback_url:
+                # callback_data 제한(64자)을 고려해 URL 뒷부분 50자만 식별자로 활용
+                article_id = callback_url[-50:] 
+                keyboard = {
+                    "inline_keyboard": [[
+                        {"text": "👍 유용함", "callback_data": f"up|{article_id}"},
+                        {"text": "👎 별로임", "callback_data": f"down|{article_id}"}
+                    ]]
+                }
+                payload["reply_markup"] = json.dumps(keyboard)
+
             response = requests.post(self.api_url, json=payload, timeout=10)
             
             if response.status_code != 200:
@@ -38,7 +51,8 @@ class TelegramNotifier:
             f"{analysis_result}\n\n"
             f"🔗 <a href='{source_url}'>원문 링크</a>"
         )
-        return self._send(message)
+        # 개별 리포트 발송 시 버튼 부착
+        return self._send(message, callback_url=source_url)
 
     def send_combined_summary(self, summary_text: str):
         message = (
@@ -47,4 +61,4 @@ class TelegramNotifier:
             f"{summary_text}\n\n"
             f"✅ 오늘 하루도 고생하셨습니다."
         )
-        return self._send(message)
+        return self._send(message) # 종합 요약은 버튼 제외 (선택 사항)
