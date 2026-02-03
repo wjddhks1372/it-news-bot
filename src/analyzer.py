@@ -2,6 +2,7 @@ from google import genai
 import logging
 import re
 from config.settings import settings
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ class NewsAnalyzer:
             logger.error(f"스코어링 실패: {e}")
             return [dict(a, score=1, reason="오류 발생") for a in articles]
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def analyze_article(self, article: dict) -> str:
         prompt = f"""
         당신은 시니어 DevOps 엔지니어입니다. 다음 뉴스를 분석하십시오.
