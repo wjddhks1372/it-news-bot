@@ -24,20 +24,30 @@ class NewsSystem:
         self.analyzer.learn_user_feedback()
 
         # 2. 뉴스 수집 및 1차 필터링
+        # main.py 내 run 메서드 일부 수정
+    async def run(self, mode: str):
+        logger.info(f"🚀 가동 모드: {mode}")
+        self.analyzer.learn_user_feedback()
+
         articles = await self.collector.collect_all()
         filtered = []
         for a in articles:
             if self.state.is_already_sent(a['link']): continue
             if any(re.search(p, a['title']) for p in BLACKLIST): continue
             filtered.append(a)
-            # [연료 확장] 엔진이 4개이므로 60개까지 분석 범위를 넓힙니다.
-            if len(filtered) >= 60: break 
+            
+            # [운영자 설정] 1회 실행 당 최대 처리량을 20개로 제한 (API Quota 방어)
+            if len(filtered) >= 20: 
+                logger.info("⚠️ 부하 방지를 위해 상위 20개 기사만 선별 분석합니다.")
+                break 
 
         if not filtered: 
-            return logger.info("✅ 새로 수집된 뉴스가 없습니다.")
+            return logger.info("✅ 새로 분석할 신규 뉴스가 없습니다.")
 
-        # 3. AI 스코어링 (4단 엔진 가동)
+        # 3. AI 스코어링 (제한된 20개에 대해서만 수행)
         scored = self.analyzer.score_articles(filtered)
+        
+        # 생존 모드 체크 및 발송 로직 동일...
         
         # [비판적 방어] 스코어링 중 생존 모드(AI 소진)가 발동되었는지 체크
         is_survival = any("생존 모드" in a.get('reason', '') for a in scored)
