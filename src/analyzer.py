@@ -61,12 +61,30 @@ class NewsAnalyzer:
             a['reason'] = "키워드 기반 자동 선정"
         return articles
 
+    # analyzer.py 내 analyze_article 메서드 수정
     def analyze_article(self, article: dict) -> str:
-        """기사 분석 시에도 엔진 로테이션 적용"""
-        for _ in range(len(self.keys)):
-            try:
-                res = self.client.models.generate_content(model="gemini-2.0-flash", contents=f"요약: {article['title']}")
-                return res.text.replace('_', '').replace('* ', '• ')
-            except:
-                if self._rotate_engine(): continue
-                return "상세 분석 생략 (엔진 소진)"
+        # 영문 소스 여부 판단 로직 (단순 소스 이름 매칭)
+        is_global = article['source'] in ["HackerNews", "TechCrunch", "TheVerge", "AWS_Global"]
+        
+        # [운영자 프롬프트] 번역과 분석을 동시에 수행
+        prompt = f"""
+        당신은 시니어 소프트웨어 엔지니어이자 기술 전문 번역가입니다. 
+        다음 IT 뉴스를 분석하여 '한국어'로 보고서를 작성하세요.
+
+        [지침]
+        1. 영문 기사라면 반드시 자연스러운 한국어로 번역하여 요약할 것.
+        2. 개발자에게 중요한 기술적 가치(Stack, Architecture, Logic) 위주로 분석할 것.
+        3. 감정을 배제하고 비판적·논리적 사고를 바탕으로 작성할 것.
+        4. 가독성을 위해 불릿 포인트(•)를 사용하고 3줄 이내로 요약할 것.
+
+        기사 제목: {article['title']}
+        기사 내용: {article['description'][:1000]}
+        """
+
+        # 4단 엔진을 순차적으로 호출 (기존 Failover 로직 활용)
+        analysis = self._call_ai_engines(prompt)
+        
+        if not analysis:
+            return "📌 상세 분석 생략 (AI 엔진 소진으로 원문을 참조해주세요)"
+            
+        return analysis
