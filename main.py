@@ -4,11 +4,12 @@ from src.analyzer import NewsAnalyzer
 from src.notifier import TelegramNotifier
 from src.utils import StateManager
 
+# 운영자 관점의 로그 포맷: 시각과 에러 레벨 위주로 표기
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# [최적화] AI 분석 가치 없는 키워드들
-BLACKLIST = [r"채용", r"모집", r"이벤트", r"할인", r"특가", r"웨비나", r"공고"]
+# 분석 제외 키워드 (운영 효율화)
+BLACKLIST = [r"채용", r"모집", r"이벤트", r"할인", r"특가", r"웨비나", r"공고", r"수강생"]
 
 class NewsSystem:
     def __init__(self):
@@ -18,63 +19,56 @@ class NewsSystem:
         self.notifier = TelegramNotifier()
 
     async def run(self, mode: str):
-        logger.info(f"🚀 가동 모드: {mode}")
-        
-        # 1. 사용자 피드백 학습 (DB 캐시 활용)
+        logger.info(f"🚀 [운영] {mode} 모드 가동")
         self.analyzer.learn_user_feedback()
 
-        # 2. 뉴스 수집 및 1차 필터링
-        # main.py 내 run 메서드 일부 수정
-    async def run(self, mode: str):
-        logger.info(f"🚀 가동 모드: {mode}")
-        self.analyzer.learn_user_feedback()
-
+        # 1. 뉴스 데이터 수집
         articles = await self.collector.collect_all()
         filtered = []
+        
         for a in articles:
+            # 중복 체크 (DB 조회)
             if self.state.is_already_sent(a['link']): continue
+            # 키워드 필터링
             if any(re.search(p, a['title']) for p in BLACKLIST): continue
+            
             filtered.append(a)
             
-            # [운영자 설정] 1회 실행 당 최대 처리량을 20개로 제한 (API Quota 방어)
+            # [운영 정책] 1회 실행 시 최대 20개만 처리 (API 할당량 보호 전략)
             if len(filtered) >= 20: 
-                logger.info("⚠️ 부하 방지를 위해 상위 20개 기사만 선별 분석합니다.")
+                logger.info("⚠️ 시스템 부하 방지를 위해 최신 20개 기사로 제한합니다.")
                 break 
 
         if not filtered: 
-            return logger.info("✅ 새로 분석할 신규 뉴스가 없습니다.")
+            return logger.info("✅ 처리할 신규 뉴스가 없습니다.")
 
-        # 3. AI 스코어링 (제한된 20개에 대해서만 수행)
+        # 2. AI 스코어링 (4단 엔진 가동)
         scored = self.analyzer.score_articles(filtered)
         
-        # 생존 모드 체크 및 발송 로직 동일...
-        
-        # [비판적 방어] 스코어링 중 생존 모드(AI 소진)가 발동되었는지 체크
+        # 스코어링 단계에서 이미 429 에러(생존 모드)가 났는지 확인
         is_survival = any("생존 모드" in a.get('reason', '') for a in scored)
 
-        # 7점 이상 우선, 없으면 4점 이상 차선책 선정
+        # 3. 고득점 기사 선별 (최상위 3개)
         candidates = [a for a in scored if a['score'] >= 7] or [a for a in scored if a['score'] >= 4]
         high_priority = sorted(candidates, key=lambda x: x['score'], reverse=True)[:3]
 
         for a in high_priority:
-            # [토큰 효율화] 이미 엔진이 소진된 상태라면 상세 분석 AI 호출을 건너뜁니다.
+            # [운영 최적화] 이미 엔진이 소진되었다면 상세 분석(AI)을 호출하지 않고 원문 링크만 발송
             if is_survival:
-                analysis = "📌 AI 엔진 소진으로 인해 상세 분석을 생략합니다. 원문 링크를 확인해주세요."
+                analysis = "📌 AI 엔진 소진으로 상세 분석을 생략합니다. 링크를 참조하세요."
             else:
                 analysis = self.analyzer.analyze_article(a)
             
             header = f"<b>[AI 평점: {a['score']}점]</b>\n<i>💡 {a.get('reason', 'N/A')}</i>"
             
-            # 발송 및 상태 업데이트
+            # 발송 품질 관리 (5초 간격 유지)
             if self.notifier.send_report(f"{header}\n\n{analysis}", a['link']):
                 self.state.add_article(a)
                 logger.info(f"📤 발송 완료: {a['title'][:20]}...")
-                # 텔레그램 도마뱀(Flood) 방지를 위해 5초 대기
-                await asyncio.sleep(5)
+                await asyncio.sleep(5) 
         
-        # 4. 오래된 데이터 정리 (DB 관리)
         self.state.clean_old_state()
-        logger.info("🏁 모든 프로세스가 정상 종료되었습니다.")
+        logger.info("🏁 운영 프로세스 정상 종료")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
