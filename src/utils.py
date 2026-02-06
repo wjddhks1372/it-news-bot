@@ -1,43 +1,29 @@
-import logging
-from supabase import create_client
-from config.settings import settings
+import os
+from supabase import create_client, Client
+from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+load_dotenv()
 
 class StateManager:
     def __init__(self):
-        self.client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY")
+        if not url or not key:
+            raise ValueError("SUPABASE 환경변수가 없습니다.")
+        # 속성명을 'db'로 고정하여 모듈 간 인터페이스 일치
+        self.db: Client = create_client(url, key)
 
     def is_already_sent(self, url: str) -> bool:
-        res = self.client.table("news_articles").select("url").eq("url", url).execute()
+        res = self.db.table("news_articles").select("url").eq("url", url).execute()
         return len(res.data) > 0
 
     def add_article(self, article: dict):
-        self.client.table("news_articles").insert({
+        self.db.table("news_articles").insert({
             "title": article['title'],
             "url": article['link'],
-            "score": article.get('score', 0),
-            "reason": article.get('reason', ""),
-            "source": article.get('source', "")
+            "source": article['source'],
+            "score": article.get('score', 0)
         }).execute()
 
-    def get_user_persona(self):
-        """DB에서 캐싱된 취향 데이터를 가져옵니다."""
-        try:
-            res = self.client.table("user_preferences").select("*").eq("persona_type", "main").single().execute()
-            return res.data
-        except:
-            return None
-
-    def save_user_persona(self, pref, dislike):
-        """취향 데이터를 DB에 캐싱합니다."""
-        self.client.table("user_preferences").update({
-            "preference_summary": pref,
-            "dislike_summary": dislike,
-            "updated_at": "now()"
-        }).eq("persona_type", "main").execute()
-
-    def clean_old_state(self, days=30):
-        from datetime import datetime, timedelta
-        threshold = (datetime.now() - timedelta(days=days)).isoformat()
-        self.client.table("news_articles").delete().lt("created_at", threshold).execute()
+    def clean_old_state(self):
+        pass
