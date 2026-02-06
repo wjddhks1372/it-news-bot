@@ -1,6 +1,7 @@
 import google.generativeai as genai
 import logging
 import os
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class NewsAnalyzer:
         attempt = 0
         while attempt < len(self.api_keys):
             try:
+                time.sleep(4) 
                 response = self.model.generate_content(prompt)
                 return response.text
             except Exception as e:
