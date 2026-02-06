@@ -34,26 +34,26 @@ class NewsAnalyzer:
             logger.error(f"❌ 취향 로드 중 오류: {e}")
 
     # 4단 엔진 순차 호출 및 Failover 로직
-    def _call_ai_engines(self, prompt: str) -> str:
-        attempt = 0
-        while attempt < len(self.api_keys):
-            try:
-                time.sleep(4) 
-                response = self.model.generate_content(prompt)
-                return response.text
-            except Exception as e:
-                if "429" in str(e):
-                    attempt += 1
-                    if attempt < len(self.api_keys):
-                        logger.warning(f"🔄 {attempt}번 엔진 소진. 다음 엔진으로 교체...")
-                        self.current_key_idx += 1
-                        self._init_client()
-                    else:
-                        logger.error("🛡️ 모든 AI 엔진 할당량 소진")
-                else:
-                    logger.error(f"❌ AI 에러: {e}")
-                    break
-        return None
+    # src/analyzer.py 수정본
+async def _call_ai_engines(self, prompt: str) -> str:
+    attempt = 0
+    while attempt < len(self.api_keys):
+        try:
+            # 1분당 15회 제한을 피하기 위해 요청 간에 확실한 5초 대기
+            await asyncio.sleep(5) 
+            response = self.model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            if "429" in str(e):
+                attempt += 1
+                self.current_key_idx += 1
+                self._init_client()
+                logger.warning(f"⚠️ 엔진 교체 {attempt}차")
+                await asyncio.sleep(10) # 차단 시 더 길게 대기
+            else:
+                break
+    return None
+            
 
     def score_articles(self, articles: list) -> list:
         scored_articles = []

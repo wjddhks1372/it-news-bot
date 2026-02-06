@@ -35,7 +35,7 @@ class NewsSystem:
             filtered.append(a)
             
             # [운영 정책] 1회 실행 시 최대 20개만 처리 (API 할당량 보호 전략)
-            if len(filtered) >= 10: 
+            if len(filtered) >= 5: 
                 logger.info("⚠️ 시스템 부하 방지를 위해 최신 20개 기사로 제한합니다.")
                 break 
 
