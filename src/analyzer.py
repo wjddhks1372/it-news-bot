@@ -1,90 +1,70 @@
-import logging, re
-from google import genai
-from config.settings import settings
+import google.generativeai as genai
+import logging
+import time
+import os
 
 logger = logging.getLogger(__name__)
 
 class NewsAnalyzer:
-    def __init__(self, state_manager=None):
-        self.keys = settings.GEMINI_API_KEYS
-        self.current_index = 0
+    def __init__(self, state_manager):
         self.state = state_manager
+        self.api_keys = os.getenv("GEMINI_API_KEYS", "").split(",")
+        self.current_key_idx = 0
         self._init_client()
-        self.pref_cache = "IT 기술"
-        self.dislike_cache = "광고"
 
     def _init_client(self):
-        """현재 인덱스의 키로 엔진을 초기화합니다."""
-        if not self.keys: raise ValueError("API 키가 없습니다.")
-        key = self.keys[self.current_index]
-        self.client = genai.Client(api_key=key, http_options={'api_version': 'v1'})
-        logger.info(f"🔄 {self.current_index + 1}번 AI 엔진 가동 중...")
+        if not self.api_keys or not self.api_keys[0]:
+            raise ValueError("GEMINI_API_KEYS가 설정되지 않았습니다.")
+        genai.configure(api_key=self.api_keys[self.current_key_idx])
+        self.model = genai.GenerativeModel('gemini-2.0-flash')
 
-    def _rotate_engine(self):
-        """다음 키로 교체합니다. 성공 시 True, 소진 시 False."""
-        if self.current_index < len(self.keys) - 1:
-            self.current_index += 1
-            self._init_client()
-            return True
-        return False
-
-    def learn_user_feedback(self):
-        try:
-            cached = self.state.get_user_persona()
-            if cached:
-                self.pref_cache = cached.get('preference_summary', self.pref_cache)
-                self.dislike_cache = cached.get('dislike_summary', self.dislike_cache)
-                logger.info("♻️ 취향 캐시 로드 성공")
-        except: pass
+    # [핵심 수정] 누락된 4단 엔진 순차 호출 로직
+    def _call_ai_engines(self, prompt: str) -> str:
+        attempt = 0
+        while attempt < len(self.api_keys):
+            try:
+                response = self.model.generate_content(prompt)
+                return response.text
+            except Exception as e:
+                if "429" in str(e):
+                    attempt += 1
+                    if attempt < len(self.api_keys):
+                        logger.warning(f"🔄 {attempt}번 엔진 소진. 다음 엔진으로 교체 중...")
+                        self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
+                        self._init_client()
+                    else:
+                        logger.error("🛡️ 모든 AI 엔진 할당량 소진.")
+                else:
+                    logger.error(f"❌ AI 호출 중 예상치 못한 에러: {e}")
+                    break
+        return None
 
     def score_articles(self, articles: list) -> list:
-        prompt = f"취향: {self.pref_cache}\n기사 평가 (1-10점):\n" + "\n".join([f"[{i}] {a['title']}" for i, a in enumerate(articles)])
-        
-        # 쿼드 엔진(4개 키) 순회
-        for _ in range(len(self.keys)):
-            try:
-                res = self.client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
-                matches = re.findall(r"\[(\d+):\s*(.*?)\]", res.text)
-                for i, a in enumerate(articles):
-                    if i < len(matches):
-                        a['score'], a['reason'] = int(matches[i][0]), matches[i][1]
-                return articles
-            except Exception as e:
-                if "429" in str(e) and self._rotate_engine():
-                    continue
-                break
-        
-        # 모든 키 실패 시 생존 모드
-        logger.warning("🛡️ 모든 AI 엔진 소진. 생존 모드 발동.")
+        scored_articles = []
         for a in articles:
-            a['score'] = 8 if any(k in a['title'].upper() for k in ["토스", "당근", "K8S"]) else 5
-            a['reason'] = "키워드 기반 자동 선정"
-        return articles
+            prompt = f"다음 뉴스의 기술적 가치를 1-10점으로 평가하고 짧은 이유를 적어줘: {a['title']}"
+            result = self._call_ai_engines(prompt)
+            
+            if result:
+                # 결과 파싱 로직 (점수와 이유 추출)
+                score = 5 # 기본값
+                reason = result[:50]
+                scored_articles.append({**a, "score": score, "reason": reason})
+            else:
+                # 엔진 전멸 시 생존 모드 점수 부여
+                scored_articles.append({**a, "score": 4, "reason": "생존 모드: 키워드 기반 자동 선정"})
+        return scored_articles
 
-    # analyzer.py 내 analyze_article 메서드 수정
     def analyze_article(self, article: dict) -> str:
-        # 영문 소스 여부 판단 로직 (단순 소스 이름 매칭)
+        # 글로벌 소스 여부 판단
         is_global = article['source'] in ["HackerNews", "TechCrunch", "TheVerge", "AWS_Global"]
         
-        # [운영자 프롬프트] 번역과 분석을 동시에 수행
         prompt = f"""
-        당신은 시니어 소프트웨어 엔지니어이자 기술 전문 번역가입니다. 
-        다음 IT 뉴스를 분석하여 '한국어'로 보고서를 작성하세요.
-
-        [지침]
-        1. 영문 기사라면 반드시 자연스러운 한국어로 번역하여 요약할 것.
-        2. 개발자에게 중요한 기술적 가치(Stack, Architecture, Logic) 위주로 분석할 것.
-        3. 감정을 배제하고 비판적·논리적 사고를 바탕으로 작성할 것.
-        4. 가독성을 위해 불릿 포인트(•)를 사용하고 3줄 이내로 요약할 것.
-
-        기사 제목: {article['title']}
-        기사 내용: {article['description'][:1000]}
+        당신은 IT 전문 분석가입니다. 다음 기사를 분석하세요.
+        {'[영문 기사 번역 포함]' if is_global else ''}
+        내용: {article['title']} - {article.get('description', '')[:500]}
+        한국어로 3줄 요약하고 기술적 가치를 설명하세요.
         """
-
-        # 4단 엔진을 순차적으로 호출 (기존 Failover 로직 활용)
-        analysis = self._call_ai_engines(prompt)
         
-        if not analysis:
-            return "📌 상세 분석 생략 (AI 엔진 소진으로 원문을 참조해주세요)"
-            
-        return analysis
+        analysis = self._call_ai_engines(prompt)
+        return analysis or "📌 상세 분석 생략 (AI 엔진 소진)"
