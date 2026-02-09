@@ -1,23 +1,7 @@
-# --- Core Framework ---
-python-dotenv==1.2.1
-PyYAML==6.0.3
-pydantic==2.12.5
-
-# --- AI Engine (Gemini) ---
-# 주의: google-genai는 최신 버전이나, 현재 우리 코드는 google-generativeai 기반입니다.
+groq==0.15.0
 google-generativeai==0.8.3
-
-# --- Networking & Scraping ---
 httpx[http2]==0.28.1
 feedparser==6.0.12
-beautifulsoup4==4.12.3
-
-# --- Database & Storage ---
+python-dotenv==1.2.1
 supabase==2.11.0
-anyio==4.12.1
-
-# --- Notification ---
 pyTelegramBotAPI==4.26.0
-
-# --- Security ---
-cryptography==46.0.4
