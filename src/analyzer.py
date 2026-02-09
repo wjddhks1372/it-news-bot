@@ -34,25 +34,24 @@ class NewsAnalyzer:
             logger.error(f"❌ 취향 로드 실패: {e}")
 
     async def _call_ai_engines(self, prompt: str, temp: float = 0.2) -> str:
-        """[운영자 패치] Temperature 조절 기능 추가로 답변 일관성 확보"""
+        # [운영] Groq 우선 시도
         if self.groq_key:
             try:
                 await asyncio.sleep(1)
                 completion = self.groq_client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=temp, # 0.2로 설정하여 환각 및 외국어 혼용 방지
-                    top_p=1,
+                    temperature=temp
                 )
                 return completion.choices[0].message.content
             except Exception as e:
-                logger.warning(f"⚠️ Groq 실패, Gemini 전환: {e}")
+                logger.warning(f"⚠️ Groq 실패, Gemini로 전환: {e}")
 
+        # [운영] Gemini 백업 시도
         try:
             await asyncio.sleep(5)
-            # Gemini의 경우 generation_config를 통해 온도 조절
             response = self.gemini_model.generate_content(
-                prompt, 
+                prompt,
                 generation_config=genai.types.GenerationConfig(temperature=temp)
             )
             return response.text
@@ -74,7 +73,6 @@ class NewsAnalyzer:
         return scored
 
     async def analyze_article(self, article: dict) -> str:
-        """[운영자 패치] 사용자가 요청한 상세 3단계 분석 포맷으로 회귀"""
         prompt = f"""
         IT 전문가로서 다음 기사를 상세 분석하세요. 반드시 한국어만 사용하세요.
         제목: {article['title']}
@@ -85,10 +83,10 @@ class NewsAnalyzer:
         (기사의 핵심 내용을 3줄 이내로 요약)
 
         2. 기술의 영향력 분석:
-        (이 기술이 업계나 개발 환경에 미칠 긍정적/부정적 영향을 불렛포인트로 분석)
+        (이 기술이 업계나 개발 환경에 미칠 영향을 분석)
 
         3. 논리적인 분석:
-        (전문가 시선에서 이 기술의 한계점이나 향후 과제를 논리적으로 비평)
+        (전문가 시선에서 이 기술의 한계점이나 과제를 비평)
         """
         analysis = await self._call_ai_engines(prompt, temp=0.2)
         return analysis or "📌 상세 분석 생략 (엔진 소진)"
@@ -97,25 +95,19 @@ class NewsAnalyzer:
         context = "\n".join([f"- {a['title']} ({a['score']}점)" for a in scored_articles])
         prompt = f"""
         당신은 기술 분석가입니다. 아래 뉴스를 종합하여 보고서를 작성하세요. 반드시 한국어만 사용하세요.
-        
         뉴스 목록:
         {context}
         
         [리포트 구성]
-        1. 핵심 키워드: 뉴스들을 관통하는 키워드 3개를 #해시태그 형태로 제시.
-        2. 기술 총평: 오늘 IT 업계의 주요 흐름을 3줄로 요약.
-        3. 🚀 오늘의 추천 액션: 개발자가 오늘 학습하거나 검토해야 할 구체적인 기술 개념 1개와 선정 이유.
+        1. 핵심 키워드: #해시태그 형태 3개
+        2. 기술 총평: 오늘 IT 흐름 3줄 요약
+        3. 🚀 오늘의 추천 액션: 오늘 학습해야 할 기술 개념 1개와 이유
         """
         summary = await self._call_ai_engines(prompt, temp=0.2)
         
-        # 가독성 정리 (불필요한 기호 제거)
-        summary = summary.strip().replace('*', '') 
-        
-        return f"""
-📊 **IT TREND INTELLIGENCE**
-━━━━━━━━━━━━━━━━━━━━
-{summary}
+        # [운영자 패치] Null 체크로 AttributeError 방지
+        if summary is None:
+            return "⚠️ 오늘 IT 트렌드 요약 분석에 실패했습니다. (엔진 소진)"
 
-📝 분석 대상: {len(scored_articles)}개 최신 기사
-━━━━━━━━━━━━━━━━━━━━
-"""
+        summary = summary.strip().replace('*', '') 
+        return f"📊 **IT TREND INTELLIGENCE**\n━━━━━━━━━━━━━━━━━━━━\n{summary}\n\n📝 분석 대상: {len(scored_articles)}개 기사\n━━━━━━━━━━━━━━━━━━━━"

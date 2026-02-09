@@ -2,10 +2,10 @@ name: Daily IT News Report
 
 on:
   schedule:
-    # KST 기준 09:07, 13:13, 15:23, 18:07 (애매한 시간 설정)
-    - cron: '7 0 * * *'   # 09:07 KST (Regular)
-    - cron: '13 4 * * *'  # 13:13 KST (Regular)
-    - cron: '23 6 * * *'  # 15:23 KST (Regular)
+    # KST 기준 09:07, 13:13, 15:23, 18:07
+    - cron: '7 0 * * *'   # 09:07 KST
+    - cron: '13 4 * * *'  # 13:13 KST
+    - cron: '23 6 * * *'  # 15:23 KST
     - cron: '7 9 * * *'   # 18:07 KST (Summary)
   workflow_dispatch:
 
@@ -25,21 +25,17 @@ jobs:
       - name: Run News Bot
         env:
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          # 현재 UTC 시간을 확인하여 실행 모드 결정
           CURRENT_HOUR=$(date -u +%H)
-          
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            # 수동 실행 시 일반 뉴스 분석
             python main.py --mode regular
           elif [ "$CURRENT_HOUR" == "09" ]; then
-            # KST 18:07 (UTC 09:07)일 때만 요약 모드 실행
             python main.py --mode summary
           else
-            # 그 외 09시, 13시, 15시 스케줄은 일반 분석 실행
             python main.py --mode regular
           fi
